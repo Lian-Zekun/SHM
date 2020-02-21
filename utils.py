@@ -6,8 +6,12 @@ import random
 import cv2 as cv
 import numpy as np
 import torch
+from torch import nn
 
-from config import num_valid
+from config import num_valid, device
+
+############################################################################################################
+# 得到所有数据的名字文件
 
 
 def gen_names():
@@ -33,18 +37,59 @@ def gen_names():
 
     with open('train_names.txt', 'w') as file:
         file.write('\n'.join(train_names))
+        
+
+############################################################################################################
+# train 
 
 
-def clip_gradient(optimizer, grad_clip):
-    """
-    Clips gradients computed during backpropagation to avoid explosion of gradients.
-    :param optimizer: optimizer with the gradients to be clipped
-    :param grad_clip: clip value
-    """
-    for group in optimizer.param_groups:
-        for param in group['params']:
-            if param.grad is not None:
-                param.grad.data.clamp_(-grad_clip, grad_clip)
+def parse_args():
+    parser = argparse.ArgumentParser(description='Train face network')
+    # general
+    parser.add_argument('--end-epoch', type=int, default=1000, help='training epoch size.')
+    parser.add_argument('--lr', type=float, default=1e-4, help='start learning rate')
+    parser.add_argument('--lr-step', type=int, default=10, help='period of learning rate decay')
+    parser.add_argument('--optimizer', default='Adam', help='optimizer')
+    parser.add_argument('--weight-decay', type=float, default=0.0005, help='weight decay')
+    parser.add_argument('--mom', type=float, default=0.9, help='momentum')
+    parser.add_argument('--batch-size', type=int, default=2, help='batch size in each context')
+    parser.add_argument('--checkpoint', type=str, default=None, help='checkpoint')
+    parser.add_argument('--pretrained', type=bool, default=True, help='pretrained model')
+    args = parser.parse_args()
+    return args
+    
+    
+def get_logger():
+    logger = logging.getLogger()
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter("%(asctime)s %(levelname)s \t%(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)
+    return logger
+    
+       
+def m_net_loss(img, alpha, fg, bg, trimap, alpha_out, epsilon_sqr=1e-12):
+    trimap_3 = torch.cat((trimap, trimap, trimap), 1).to(device)
+    unknown_region_size = trimap.sum() + epsilon_sqr
+
+    # alpha diff
+    alpha_loss = torch.sqrt((alpha_out - alpha) ** 2 + epsilon_sqr)
+    alpha_loss = (alpha_loss * trimap).sum() / unknown_region_size
+
+    # composite rgb loss
+    alpha_out_3 = torch.cat((alpha_out, alpha_out, alpha_out), 1)
+    comp = alpha_out_3 * fg + (1. - alpha_out_3) * bg
+    comp_loss = torch.sqrt((comp - img) ** 2 + epsilon_sqr) / 255.
+    comp_loss = (comp_loss * trimap_3).sum() / unknown_region_size / 3.
+
+    return 0.5 * alpha_loss + 0.5 * comp_loss
+    
+    
+def t_net_loss(trimap_pre, trimap_gt):
+    criterion = nn.CrossEntropyLoss()
+    loss_t = criterion(trimap_pre, trimap_gt.long())
+    return loss_t
 
 
 def save_checkpoint(epoch, model, optimizer, loss, is_best):
@@ -81,18 +126,16 @@ class AverageMeter(object):
 
 
 def adjust_learning_rate(optimizer, shrink_factor):
-    """
-    Shrinks learning rate by a specified factor.
-    :param optimizer: optimizer whose learning rate must be shrunk.
-    :param shrink_factor: factor in interval (0, 1) to multiply learning rate with.
-    """
-
     for param_group in optimizer.param_groups:
         param_group['lr'] = param_group['lr'] * shrink_factor
 
 
 def get_learning_rate(optimizer):
     return optimizer.param_groups[0]['lr']
+    
+    
+############################################################################################################
+# extract
 
 
 def accuracy(scores, targets, k=1):
@@ -101,71 +144,6 @@ def accuracy(scores, targets, k=1):
     correct = ind.eq(targets.view(-1, 1).expand_as(ind))
     correct_total = correct.view(-1).float().sum()  # 0D tensor
     return correct_total.item() * (100.0 / batch_size)
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(description='Train face network')
-    # general
-    parser.add_argument('--end_epoch', type=int, default=1000, help='training epoch size.')
-    parser.add_argument('--lr', type=float, default=1e-3, help='start learning rate')
-    parser.add_argument('--decay_step', type=int, default=20, help='period of learning rate decay')
-    parser.add_argument('--optimizer', default='Adam', help='optimizer')
-    parser.add_argument('--weight_decay', type=float, default=0.0005, help='weight decay')
-    parser.add_argument('--mom', type=float, default=0.9, help='momentum')
-    parser.add_argument('--batch_size', type=int, default=1, help='batch size in each context')
-    parser.add_argument('--checkpoint', type=str, default=None, help='checkpoint')
-    parser.add_argument('--pretrained', type=bool, default=True, help='pretrained model')
-    args = parser.parse_args()
-    return args
-
-
-def get_logger():
-    logger = logging.getLogger()
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s %(levelname)s \t%(message)s")
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    logger.setLevel(logging.DEBUG)
-    return logger
-
-
-# 应该分为原图片大小大于目标大小(crop_size)需要进行裁剪
-# 原图大小小于输出图片大小(im_size) 或 目标大小(crop_size)大于输出图片大小(im_size)直接resize
-def safe_crop(mat, x, y, crop_size, im_size):
-    if len(mat.shape) == 2:
-        ret = np.zeros((crop_size, crop_size), np.uint8)
-    else:
-        ret = np.zeros((crop_size, crop_size, 3), np.uint8)
-    crop = mat[y:y + crop_size, x:x + crop_size]
-    h, w = crop.shape[:2] # 若原图片小于目标大小,则crop shape不会保证预期的crop_size,需要重新得到shape
-    ret[0:h, 0:w] = crop
-    if crop_size != im_size:
-        ret = cv.resize(ret, dsize=(im_size, im_size), interpolation=cv.INTER_NEAREST)
-    return ret
-    
-    
-def crop_offset(trimap, crop_size):
-    """以未知区域的像素为中心，随机裁剪 320x320 的 (image, trimap) 对，以增加采样空间."""
-    y_indices, x_indices = np.where(trimap == 128)
-    num_unknowns = len(y_indices)
-    x, y = 0, 0
-    if num_unknowns > 0:
-        index = np.random.randint(low=0, high=num_unknowns)
-        center_x = x_indices[index]
-        center_y = y_indices[index]
-        x = max(0, center_x - crop_size // 2)
-        y = max(0, center_y - crop_size // 2)
-    return x, y
-
-
-# alpha-prediction loss 是对每个像素的 
-# groundtruth alpha 值与 predicted alpha 值间的绝对差值(absolute difference).
-# 但由于绝对值的不可微，故采用其逼近形式
-def alpha_prediction_loss(alpha_pred, alpha, trimap, epsilon_sqr=1e-12):
-    diff = alpha_pred - alpha
-    diff = diff * trimap
-    num_pixels = torch.sum(trimap) + epsilon_sqr
-    return torch.sum(torch.sqrt(torch.pow(diff, 2) + epsilon_sqr)) / num_pixels
 
 
 # compute the MSE error given a prediction, a ground truth and a trimap.

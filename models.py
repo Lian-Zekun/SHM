@@ -3,8 +3,10 @@ import torch
 import torch.nn as nn
 import torchvision as tv
 import torch.nn.functional as F
+import segmentation_models_pytorch as smp
 
 VGG16_BN_MODEL_URL = 'https://download.pytorch.org/models/vgg16_bn-6c64b313.pth'
+
 
 channels = {
     'vgg': {
@@ -14,15 +16,16 @@ channels = {
     },
 }
 
-def encoder_layers(channels, in_channels=3):
+
+def encoder_layers(channels, in_channel=3):
     layers = []
     for v in channels:
         if v == 'M':
             layers += [nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)]
         else:
-            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
+            conv2d = nn.Conv2d(in_channel, v, kernel_size=3, padding=1)
             layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
-            in_channels = v
+            in_channel = v
     return nn.Sequential(*layers)
 
 
@@ -41,9 +44,9 @@ def decoder_layers(channels):
 
 class VGG(nn.Module):
     
-    def __init__(self, encoder_channels):
+    def __init__(self, encoder_channels, in_channel):
         super(VGG, self).__init__()
-        self.features = encoder_layers(encoder_channels, in_channels=4)
+        self.features = encoder_layers(encoder_channels, in_channel=in_channel)
         self._indices = None
         self._unpool_shapes = None
         
@@ -58,27 +61,12 @@ class VGG(nn.Module):
             else:
                 x = layer(x)
         return x
-    
-    
-def init_vgg16_bn(channels, pretrained=True, progress=True):
-    model = VGG(channels)
-    if pretrained:
-        state_dict = tv.models.utils.load_state_dict_from_url(
-            VGG16_BN_MODEL_URL, progress=progress)
-        conv1_weight_name = 'features.0.weight'
-        conv1_weight = model.state_dict()[conv1_weight_name]
-        conv1_weight[:, :3, :, :] = state_dict[conv1_weight_name]
-        conv1_weight[:, 3, :, :] = torch.tensor(0)
-        state_dict[conv1_weight_name] = conv1_weight
-        model.load_state_dict(state_dict, strict=False)
-    return model
 
 
-class DIM(nn.Module):
-    """Deep Image Matting."""
+class Mnet(nn.Module):
     
     def __init__(self, encoder_layers, decoder_channels):
-        super(DIM, self).__init__()
+        super(Mnet, self).__init__()
         # Encoder
         self.encoder_layers = encoder_layers
         # Decoder
@@ -103,9 +91,83 @@ class DIM(nn.Module):
         return x
         
         
-def get_m_net_model():
+class SHM(nn.Module):
+    """ e2e """
+    def __init__(self, t_net, m_net):
+        super(SHM, self).__init__()
+        self.t_net = t_net
+        self.m_net = m_net
+        
+    def forward(self, input):
+    	# trimap
+        trimap = self.t_net(input)
+        trimap_softmax = F.softmax(trimap, dim=1)
+
+        # paper: bs, fs, us
+        bg, fg, unsure = torch.split(trimap_softmax, 1, dim=1)
+
+        # concat input and trimap
+        m_net_input = torch.cat((input, trimap_softmax), 1)
+
+        # matting
+        alpha_r = self.m_net(m_net_input)
+        # fusion module
+        # paper : alpha_p = fs + us * alpha_r
+        alpha_p = fg + unsure * alpha_r
+
+        return trimap, alpha_p
+        
+        
+def init_vgg16_bn(channels, in_channel, pretrained=True, progress=True):
+    model = VGG(channels, in_channel)
+    if pretrained:
+        state_dict = tv.models.utils.load_state_dict_from_url(
+            VGG16_BN_MODEL_URL, progress=progress)
+        conv1_weight_name = 'features.0.weight'
+        conv1_weight = model.state_dict()[conv1_weight_name]
+        conv1_weight[:, :3, :, :] = state_dict[conv1_weight_name]
+        conv1_weight[:, 3, :, :] = torch.tensor(0)
+        state_dict[conv1_weight_name] = conv1_weight
+        model.load_state_dict(state_dict, strict=False)
+    return model
+    
+    
+def get_t_net_model():
+    model = smp.PSPNet('resnet50', classes=3)
+    return model 
+        
+        
+def get_m_net_model(in_channel):
     vgg_encoder_channels = channels.get('vgg').get('encoder')
     vgg_decoder_channels = channels.get('vgg').get('decoder')
-    vgg = init_vgg16_bn(vgg_encoder_channels)
-    dim = DIM(vgg, vgg_decoder_channels)
+    vgg = init_vgg16_bn(vgg_encoder_channels, in_channel)
+    dim = Mnet(vgg, vgg_decoder_channels)
     return dim
+
+
+def get_shm_model():
+    t_net = get_t_net_model()
+    m_net = get_m_net_model(6)
+    shm = SHM(t_net, m_net)
+        
+       
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+        

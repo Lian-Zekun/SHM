@@ -44,7 +44,7 @@ class TNetDataset(Dataset):
             img = np.fliplr(img)
             trimap = np.fliplr(trimap)
 
-        img = img.transpose((2, 0, 1)).astype(np.float32)  # RGB
+        img = torch.from_numpy(img.astype(np.float32)).permute(2, 0, 1)  # RGB
         img = transforms.ToPILImage()(img)
         img = self.transformer(img)
         
