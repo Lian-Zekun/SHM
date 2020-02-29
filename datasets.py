@@ -47,7 +47,7 @@ def crop_offset(trimap, crop_size):
 
 # 应该分为原图片大小大于目标大小(crop_size)需要进行裁剪
 # 原图大小小于输出图片大小(im_size) 或 目标大小(crop_size)大于输出图片大小(im_size)直接resize
-def safe_crop(mat, x, y, crop_size, im_size):
+def safe_crop(mat, x, y, crop_size, im_size, type=0):
     if len(mat.shape) == 2:
         ret = np.zeros((crop_size, crop_size), np.uint8)
     else:
@@ -56,7 +56,10 @@ def safe_crop(mat, x, y, crop_size, im_size):
     h, w = crop.shape[:2] # 若原图片小于目标大小,则crop shape不会保证预期的crop_size,需要重新得到shape
     ret[0:h, 0:w] = crop
     if crop_size != im_size:
-        ret = cv.resize(ret, dsize=(im_size, im_size), interpolation=cv.INTER_NEAREST)
+        if type == 0:
+            ret = cv.resize(ret, dsize=(im_size, im_size), interpolation=cv.INTER_AREA)
+        else:  # 对应trimap图像使用cv.INTER_NEAREST
+            ret = cv.resize(ret, dsize=(im_size, im_size), interpolation=cv.INTER_NEAREST)
     return ret
 
 
@@ -73,12 +76,12 @@ class TnetDataset(Dataset):
 
         # 裁剪训练对(image, trimap)为不同的大小，如 480x480, 640x640,
         # 并 resize 到 320x320，以使模型对不同尺寸更鲁棒，有助于网络更好的学习上下文和语义等高层信息.
-        crop_sizes = [400, 600, 800]
+        crop_sizes = [320, 480, 640]
         crop_size = random.choice(crop_sizes)
 
         x, y = crop_offset(trimap, crop_size)
-        img = safe_crop(img, x, y, crop_size, t_im_size)
-        trimap = safe_crop(trimap, x, y, crop_size, t_im_size)
+        img = safe_crop(img, x, y, crop_size, im_size)
+        trimap = safe_crop(trimap, x, y, crop_size, im_size, 1)
         
         # trimap should be 3 classes : fg, bg. unsure
         trimap[trimap==0] = 0
@@ -128,11 +131,11 @@ class MnetDataset(Dataset):
         crop_size = random.choice(crop_sizes)
 
         x, y = crop_offset(trimap, crop_size)
-        img = safe_crop(img, x, y, crop_size, m_im_size)
-        fg = safe_crop(fg, x, y, crop_size, m_im_size)
-        bg = safe_crop(bg, x, y, crop_size, m_im_size)
-        alpha = safe_crop(alpha, x, y, crop_size, m_im_size)
-        trimap = safe_crop(trimap, x, y, crop_size, m_im_size)
+        img = safe_crop(img, x, y, crop_size, im_size)
+        fg = safe_crop(fg, x, y, crop_size, im_size)
+        bg = safe_crop(bg, x, y, crop_size, im_size)
+        alpha = safe_crop(alpha, x, y, crop_size, im_size)
+        trimap = safe_crop(trimap, x, y, crop_size, im_size, 1)
 
         # 对每个训练对(image, trimap) 随机镜像处理.
         if np.random.random_sample() > 0.5:
@@ -146,8 +149,8 @@ class MnetDataset(Dataset):
         transform_img = transforms.ToPILImage()(img)
         transform_img = self.transform(transform_img)
         
-        fg = torch.from_numpy(fg.astype(np.float32)).permute(2, 0, 1)
-        bg = torch.from_numpy(bg.astype(np.float32)).permute(2, 0, 1)
+        fg = torch.from_numpy(fg.astype(np.float32)).permute(2, 0, 1)  # RGB
+        bg = torch.from_numpy(bg.astype(np.float32)).permute(2, 0, 1)  # RGB
         alpha = torch.from_numpy(alpha.astype(np.float32) / 255.)
         alpha.unsqueeze_(dim=0)
         trimap = torch.from_numpy(trimap.astype(np.float32))

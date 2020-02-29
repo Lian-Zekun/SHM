@@ -70,18 +70,21 @@ def get_logger():
     
        
 def m_net_loss(img, alpha, fg, bg, trimap, alpha_out, epsilon_sqr=1e-12):
-    trimap_3 = torch.cat((trimap, trimap, trimap), 1).to(device)
-    unknown_region_size = trimap.sum() + epsilon_sqr
+    mask = torch.zeros(trimap.shape)
+    mask[trimap == 128] = 1.
+    mask.to(device)
+    mask_3 = torch.cat((mask, mask, mask), 1).to(device)
+    unknown_region_size = mask.sum() + epsilon_sqr
 
     # alpha diff
     alpha_loss = torch.sqrt((alpha_out - alpha) ** 2 + epsilon_sqr)
-    alpha_loss = (alpha_loss * trimap).sum() / unknown_region_size
+    alpha_loss = (alpha_loss * mask).sum() / unknown_region_size
 
     # composite rgb loss
     alpha_out_3 = torch.cat((alpha_out, alpha_out, alpha_out), 1)
     comp = alpha_out_3 * fg + (1. - alpha_out_3) * bg
     comp_loss = torch.sqrt((comp - img) ** 2 + epsilon_sqr) / 255.
-    comp_loss = (comp_loss * trimap_3).sum() / unknown_region_size / 3.
+    comp_loss = (comp_loss * mask_3).sum() / unknown_region_size / 3.
 
     return 0.5 * alpha_loss + 0.5 * comp_loss
     
@@ -92,12 +95,13 @@ def t_net_loss(trimap_pre, trimap_gt):
     return loss_t
 
 
-def save_checkpoint(epoch, model, optimizer, loss, is_best):
+def save_checkpoint(epoch, model, optimizer, loss, is_best, net_type):
+    names = ['t', 'm', 'shm']
     state = {'epoch': epoch,
              'loss': loss,
              'model': model,
              'optimizer': optimizer}
-    filename = 'checkpoint/t_net_checkpoint.pth'
+    filename = 'checkpoint/{}_net_checkpoint.pth'.format(names[net_type])
     torch.save(state, filename)
     if is_best:
         filename = 'checkpoint/t_net_best_checkpoint.pth'

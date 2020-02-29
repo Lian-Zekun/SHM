@@ -98,12 +98,15 @@ class DIMDataset(Dataset):
         transform_img = transforms.ToPILImage()(img)
         transform_img = self.transform(transform_img)
         
-        fg = torch.from_numpy(fg.astype(np.float32)).permute(2, 0, 1)
-        bg = torch.from_numpy(bg.astype(np.float32)).permute(2, 0, 1)
+        fg = torch.from_numpy(fg.astype(np.float32)).permute(2, 0, 1)  # RGB
+        bg = torch.from_numpy(bg.astype(np.float32)).permute(2, 0, 1)  # RGB
         alpha = torch.from_numpy(alpha.astype(np.float32) / 255.)
         alpha.unsqueeze_(dim=0)
+        # mask = np.equal(trimap, 128).astype(np.float32)
+        # mask = torch.from_numpy(mask)
         trimap = torch.from_numpy(trimap.astype(np.float32))
         trimap.unsqueeze_(dim=0)
+        # transform_img = torch.cat((transform_img, trimap / 255.), 1)
 
         return transform_img, img, fg, bg, alpha, trimap
 

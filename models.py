@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import random
+
 import torch
 import torch.nn as nn
 import torchvision as tv
@@ -47,7 +49,7 @@ class VGG(nn.Module):
     def __init__(self, encoder_channels, in_channel):
         super(VGG, self).__init__()
         self.features = encoder_layers(encoder_channels, in_channel=in_channel)
-        self._indices = None
+        self._indices = None  # 最大值位置索引
         self._unpool_shapes = None
         
     def forward(self, x):
@@ -102,6 +104,15 @@ class SHM(nn.Module):
     	# trimap
         trimap = self.t_net(input)
         trimap_softmax = F.softmax(trimap, dim=1)
+        
+        # 二次裁剪
+        # crop_sizes = [320, 480, 640]
+        # crop_size = random.choice(crop_sizes)
+        # x = random.randint(0, 800-crop_sizes)
+        # y = random.randint(0, 800-crop_sizes)
+        
+        # trimap_softmax = safe_crop(trimap_softmax, x, y, crop_size, m_im_size)
+        # input = safe_crop(input, x, y, crop_size, m_im_size)   
 
         # paper: bs, fs, us
         bg, fg, unsure = torch.split(trimap_softmax, 1, dim=1)
@@ -126,7 +137,8 @@ def init_vgg16_bn(channels, in_channel, pretrained=True, progress=True):
         conv1_weight_name = 'features.0.weight'
         conv1_weight = model.state_dict()[conv1_weight_name]
         conv1_weight[:, :3, :, :] = state_dict[conv1_weight_name]
-        conv1_weight[:, 3, :, :] = torch.tensor(0)
+        for i in range(3, in_channel):
+            conv1_weight[:, i, :, :] = torch.tensor(0)
         state_dict[conv1_weight_name] = conv1_weight
         model.load_state_dict(state_dict, strict=False)
     return model
@@ -149,25 +161,4 @@ def get_shm_model():
     t_net = get_t_net_model()
     m_net = get_m_net_model(6)
     shm = SHM(t_net, m_net)
-        
        
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    
-        

@@ -8,8 +8,43 @@ import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
 
-from config import t_im_size, fg_path, bg_path, a_path, out_path,trimap_path, training_fg_names_path, data_transform
-from utils import safe_crop, crop_offset
+from config import t_im_size, fg_path, bg_path, a_path, out_path,trimap_path, training_fg_names_path
+
+
+data_transform = transforms.Compose([
+        transforms.ColorJitter(brightness=0.125, contrast=0.125, saturation=0.125),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+    ])
+    
+    
+def crop_offset(trimap, crop_size):
+    """以未知区域的像素为中心，随机裁剪 320x320 的 (image, trimap) 对，以增加采样空间."""
+    y_indices, x_indices = np.where(trimap == 128)
+    num_unknowns = len(y_indices)
+    x, y = 0, 0
+    if num_unknowns > 0:
+        index = np.random.randint(low=0, high=num_unknowns)
+        center_x = x_indices[index]
+        center_y = y_indices[index]
+        x = max(0, center_x - crop_size // 2)
+        y = max(0, center_y - crop_size // 2)
+    return x, y
+
+
+# 应该分为原图片大小大于目标大小(crop_size)需要进行裁剪
+# 原图大小小于输出图片大小(im_size) 或 目标大小(crop_size)大于输出图片大小(im_size)直接resize
+def safe_crop(mat, x, y, crop_size, im_size):
+    if len(mat.shape) == 2:
+        ret = np.zeros((crop_size, crop_size), np.uint8)
+    else:
+        ret = np.zeros((crop_size, crop_size, 3), np.uint8)
+    crop = mat[y:y + crop_size, x:x + crop_size]
+    h, w = crop.shape[:2] # 若原图片小于目标大小,则crop shape不会保证预期的crop_size,需要重新得到shape
+    ret[0:h, 0:w] = crop
+    if crop_size != im_size:
+        ret = cv.resize(ret, dsize=(im_size, im_size), interpolation=cv.INTER_NEAREST)
+    return ret
 
 
 class TNetDataset(Dataset):

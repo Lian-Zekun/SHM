@@ -100,13 +100,13 @@ def train_net():
         # 改变 learning rate
         is_best = False
         if epoch > 0 and epoch % decay_step == 0:
-            is_best = valid_loss < best_loss
+            is_best = train_loss < best_loss
             best_loss = min(valid_loss, best_loss)
             lr_decays_change += 1
             adjust_learning_rate(optimizer, decay_rate ** lr_decays_change)
             print("\nDecays since last improvement: %d\n" % (lr_decays_change,))
         
-        save_checkpoint(epoch, model, optimizer, best_loss, is_best)
+        save_checkpoint(epoch, model, optimizer, best_loss, is_best, net_type)
         
         
 def t_net_train(train_loader, model, optimizer, epoch, logger):
@@ -154,14 +154,13 @@ def m_net_train(train_loader, model, optimizer, epoch, logger):
         bg = Variable(bg).to(device)  # [N, 3, 320, 320]
         alpha = Variable(alpha).to(device)  # [N, 1, 320, 320]
         trimap = Variable(trimap).to(device)  # [N, 1, 320, 320]
-        
-        optimizer.zero_grad()
 
         # 输入 [N, 4, 320, 320],输出 [N, 1, 320, 320]
         alpha_out = model(torch.cat((transform_img, trimap / 255.), 1))
 
         loss = m_net_loss(img, alpha, fg, bg, trimap, alpha_out)
 
+        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 

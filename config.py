@@ -17,11 +17,11 @@ num_workers = 4  # DataLoader 进程数
 print_freq = 100  # 打印周期
 
 # MNet 图片大小
-m_im_size = 320
+im_size = 320
 # TNet 图片大小
-t_im_size = 400
+# t_im_size = 400
 # shm 图片大小
-s_im_size = 800
+# s_im_size = 800
 
 num_samples = 43100  # 数据集总数
 num_train = 34480  # 训练集数量

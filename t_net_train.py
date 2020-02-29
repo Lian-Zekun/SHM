@@ -81,13 +81,13 @@ def train_net(args):
 
         # One epoch's validation
         if epoch > 0 and epoch % args.decay_step == 0:
-            is_best = valid_loss < best_loss
+            is_best = train_loss < best_loss
             best_loss = min(valid_loss, best_loss)
             lr_decays_change += 1
             adjust_learning_rate(optimizer, decay_rate ** lr_decays_change)
             print("\nDecays since last improvement: %d\n" % (lr_decays_change,))
         
-        save_checkpoint(epoch, model, optimizer, best_loss, is_best)
+        save_checkpoint(epoch, model, optimizer, best_loss, is_best, 0)
 
 
 def train(train_loader, model, optimizer, epoch, logger):
@@ -106,7 +106,6 @@ def train(train_loader, model, optimizer, epoch, logger):
 
         optimizer.zero_grad()
         loss.backward()
-
         optimizer.step()
 
         losses.update(loss.item())
