@@ -6,6 +6,7 @@ import torch.nn as nn
 import torchvision as tv
 import torch.nn.functional as F
 import segmentation_models_pytorch as smp
+from config import checkpoint_path, device
 
 VGG16_BN_MODEL_URL = 'https://download.pytorch.org/models/vgg16_bn-6c64b313.pth'
 
@@ -105,14 +106,15 @@ class SHM(nn.Module):
         trimap = self.t_net(input)
         trimap_softmax = F.softmax(trimap, dim=1)
         
-        # 二次裁剪
-        # crop_sizes = [320, 480, 640]
-        # crop_size = random.choice(crop_sizes)
-        # x = random.randint(0, 800-crop_sizes)
-        # y = random.randint(0, 800-crop_sizes)
-        
-        # trimap_softmax = safe_crop(trimap_softmax, x, y, crop_size, m_im_size)
-        # input = safe_crop(input, x, y, crop_size, m_im_size)   
+        if trimap_softmax.shape != input.shape:
+            h1, w1 = trimap_softmax.shape[2:]
+            h2, w2 = input.shape[2:]
+            h = h1 if h1 < h2 else h2
+            w = w1 if w1 < w2 else w2
+            round_trimap_softmax = torch.zeros(input.shape)
+            round_trimap_softmax[:, :, 0:h, 0:w] = trimap_softmax[:, :, 0:h, 0:w]
+            trimap_softmax = round_trimap_softmax
+        trimap_softmax = trimap_softmax.to(device)
 
         # paper: bs, fs, us
         bg, fg, unsure = torch.split(trimap_softmax, 1, dim=1)
@@ -159,6 +161,12 @@ def get_m_net_model(in_channel):
 
 def get_shm_model():
     t_net = get_t_net_model()
+    if not checkpoint_path[2]:
+        t_net = nn.DataParallel(t_net)
+        ckpt = torch.load(checkpoint_path[0])
+        t_net.load_state_dict(ckpt['model_state_dict'])
+        t_net = t_net.module
     m_net = get_m_net_model(6)
     shm = SHM(t_net, m_net)
+    return shm
        

@@ -2,10 +2,10 @@ import os
 import cv2 as cv
 import numpy as np
 from tqdm import tqdm
-from config import a_path, trimap_path, trimap_path_test
+from multiprocessing import Pool
+from config import a_path, trimap_path, trimap_path_test, training_fg_names_path
 
 num_bgs = 100
-
 
 def gen_trimap(a_name, fcount, bcount):
     alpha = cv.imread(a_path + a_name, 0)
@@ -36,14 +36,15 @@ def process_one_fg(fcount):
 
     
 if __name__ == '__main__':
-    with open('../data/Combined_Dataset/Training_set/training_fg_names.txt') as f:
+    with open(training_fg_names_path) as f:
         fg_files = f.read().splitlines()
-        
-    num = len(fg_files)
-    print('num_samples: ' + str(num * num_bgs))
     
-    for fcount in tqdm(range(num)):
-        process_one_fg(fcount)
+    with Pool(processes=16) as p:
+        num = len(fg_files)
+        print('num_samples: ' + str(num * num_bgs))
+        with tqdm(total=num) as pbar:
+            for i, _ in tqdm(enumerate(p.imap_unordered(process_one_fg, range(0, num)))):
+                pbar.update()
         
     
     

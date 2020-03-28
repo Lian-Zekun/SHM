@@ -4,11 +4,11 @@ import cv2 as cv
 import numpy as np
 import torch
 from torch import nn
-from torchvision import transforms
 from torch.autograd import Variable
+from torchvision import transforms
 from tqdm import tqdm
 
-from config import device, test_path, a_path_test, out_path_test, checkpoint_path, trimap_path_test
+from config import device, checkpoint_path
 from models import get_shm_model, get_t_net_model
 
 
@@ -17,10 +17,9 @@ transformer = transforms.Compose([
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
     
-
+    
 def load_model():
     model = get_shm_model()
-    # model = get_t_net_model()
     model = nn.DataParallel(model)
     checkpoint = checkpoint_path[2]
     ckpt = torch.load(checkpoint)
@@ -54,17 +53,23 @@ def generate_alpha(img, model):
     alpha = alpha.astype(np.uint8)
 
     return trimap_np, alpha
-
-
-if __name__ == '__main__':
-    model = load_model()
-    print('模型加载完成')
     
-    test_names = os.listdir(test_path)
+   
+if __name__ == '__main__':
+    #model = load_model()
+    #print('模型加载完成')
+    
+    path = '../data/merged_test/2007_000332!antique-honiton-lace-1182740_1920!1!20.png'
+    img = cv.imread(path)
+    #h, w = img.shape[:2]
+    img = img[200:560, 200:560]
+    #h, w = img.shape[:2]
+    #round_img = np.zeros((rounding(h), rounding(w), 3))
+    #round_img[0:h, 0:w] = img
+    #print(round_img.shape)
+    #_, alpha = generate_alpha(img, model)
+    #cv.imwrite('uploads/10.png', alpha)
+    cv.imwrite('uploads/10.png', img)
+    print('图片生成')
 
-    for name in tqdm(test_names):
-        img = cv.imread(test_path + name)       
-        trimap, alpha_pre = generate_alpha(img, model)
-        cv.imwrite(out_path_test + name, alpha_pre)
-        cv.imwrite(trimap_path_test + name, trimap)
-    print('分离完毕')
+

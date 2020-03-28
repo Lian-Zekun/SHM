@@ -20,14 +20,10 @@ data_transform = transforms.Compose([
 
 
 with open(training_fg_names_path) as f:
-    fg_files = f.read().splitlines()
-
-   
+    fg_files = f.read().splitlines()   
 with open(training_bg_names_path) as f:
     bg_files = f.read().splitlines()
-
-
-with open(data_names_path, 'r') as file:
+with open(data_names_path) as file:
     names = file.read().splitlines()
 
 
@@ -104,24 +100,20 @@ class TnetDataset(Dataset):
 
     def __len__(self):
         return len(self.names)
-
-
-class MnetDataset(Dataset):
+        
+        
+class SHMDataset(Dataset):
     def __init__(self):
         self.names = names
-        self.transform = data_transform
+        self.transformer = data_transform
 
     def __getitem__(self, i):
         # 加载图片
         name = self.names[i]
         fcount = int(name.split('.')[0].split('_')[0])
-        bcount = int(name.split('.')[0].split('_')[1])
         fg_name = fg_files[fcount]
-        bg_name = bg_files[bcount]
         
         img = cv.imread(out_path + name)
-        fg = cv.imread(fg_path + fg_name)
-        bg = cv.imread(bg_path + bg_name)
         trimap = cv.imread(trimap_path + name, 0)
         alpha = cv.imread(a_path + fg_name, 0)
 
@@ -132,31 +124,33 @@ class MnetDataset(Dataset):
 
         x, y = crop_offset(trimap, crop_size)
         img = safe_crop(img, x, y, crop_size, im_size)
-        fg = safe_crop(fg, x, y, crop_size, im_size)
-        bg = safe_crop(bg, x, y, crop_size, im_size)
         alpha = safe_crop(alpha, x, y, crop_size, im_size)
         trimap = safe_crop(trimap, x, y, crop_size, im_size, 1)
+        
+        # trimap should be 3 classes : fg, bg. unsure
+        mask = np.zeros(trimap.shape)
+        mask[trimap==0] = 0
+        mask[trimap==128] = 1
+        mask[trimap==255] = 2 
 
         # 对每个训练对(image, trimap) 随机镜像处理.
         if np.random.random_sample() > 0.5:
             img = np.fliplr(img)
-            fg = np.fliplr(fg)
-            bg = np.fliplr(bg)
             trimap = np.fliplr(trimap)
             alpha = np.fliplr(alpha)
+            mask = np.fliplr(mask)
 
         img = torch.from_numpy(img.astype(np.float32)).permute(2, 0, 1)  # RGB
         transform_img = transforms.ToPILImage()(img)
-        transform_img = self.transform(transform_img)
-        
-        fg = torch.from_numpy(fg.astype(np.float32)).permute(2, 0, 1)  # RGB
-        bg = torch.from_numpy(bg.astype(np.float32)).permute(2, 0, 1)  # RGB
+        transform_img = self.transformer(transform_img)
+        mask = torch.from_numpy(mask.astype(np.float32))
         alpha = torch.from_numpy(alpha.astype(np.float32) / 255.)
         alpha.unsqueeze_(dim=0)
+        # trimap = np.ascontiguousarray(trimap)  # 将一个内存不连续存储的数组转换为内存连续存储的数组
         trimap = torch.from_numpy(trimap.astype(np.float32))
         trimap.unsqueeze_(dim=0)
 
-        return transform_img, img, fg, bg, alpha, trimap
+        return transform_img, img, alpha, trimap, mask
 
     def __len__(self):
         return len(self.names)
