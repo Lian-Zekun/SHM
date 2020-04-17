@@ -33,7 +33,7 @@ checkpoint_path = ['checkpoint/t_net_checkpoint.tar', None, 'checkpoint/shm_net_
 fg_path = '../data/fg/'
 a_path = '../data/alpha/'
 bg_path = '../data/bg/'
-out_path = '../data/merged/'
+out_path = '../data/composite/'
 trimap_path = '../data/trimap/'
 
 training_fg_names_path = '../data/training_fg_names.txt'
@@ -46,6 +46,6 @@ fg_path_test = '../data/fg_test/'
 a_path_test = '../data/alpha_test/'
 bg_path_test = '../data/bg_test/'
 out_path_test = '../data/alpha_result/'
-test_path = '../data/merged_test/'
+test_path = '../data/composite_test/'
 trimap_path_test = '../data/trimap_test/'
 ##############################################################

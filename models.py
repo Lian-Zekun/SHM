@@ -74,8 +74,8 @@ class Mnet(nn.Module):
         self.encoder_layers = encoder_layers
         # Decoder
         self.decoder_layers = decoder_layers(decoder_channels)
-        # Prediction
         self.final_conv = nn.Conv2d(decoder_channels[-1], 1, kernel_size=5, padding=2)
+        
         self.sigmoid = nn.Sigmoid()
         
     def forward(self, x):
